@@ -1,5 +1,5 @@
 import { Outlet, Link } from 'react-router-dom';
-import { Activity, Github } from 'lucide-react';
+import { Activity, Github, Bell } from 'lucide-react';
 
 export default function Layout() {
   return (
@@ -12,6 +12,10 @@ export default function Layout() {
             <span className="text-xs text-gray-500 ml-2">MVP</span>
           </Link>
           <nav className="flex items-center gap-2">
+            <Link to="/alerts" className="btn-ghost flex items-center gap-2">
+              <Bell className="w-4 h-4" />
+              <span>Alerts</span>
+            </Link>
             <a
               href="https://github.com"
               target="_blank"

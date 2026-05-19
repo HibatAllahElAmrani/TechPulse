@@ -110,7 +110,7 @@ export default function AlertsPage() {
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
           >
-            <option value="">Select a project…</option>
+            <option value="" disabled className='text-gray-400'>Select a project…</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>{p.full_name}</option>
             ))}
