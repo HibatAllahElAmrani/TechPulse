@@ -1,22 +1,26 @@
 import type { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import type { CollectJobData } from './metricsWorker.js';
+import { evaluateAlerts } from '../services/alertsEvaluator.js';
 
-/**
- * Periodically enqueues collection jobs based on priority tiers,
- * matching the cahier des charges spec:
- *   HIGH:   stars/issues   → every 30s
- *   MEDIUM: commits/PRs    → every 5min
- *   LOW:    contributors   → every 15min
- *
- * For MVP simplicity, we use a single job that fetches everything,
- * with the `priority` field controlling whether to refresh contributors/commits.
+/** Scheduler — periodic job dispatcher
+ 
+ * Acts as the heartbeat of the data pipeline. Rather than fetching GitHub data directly (from the API), it enqueues collection jobs into the BullMQ queue at different frequencies depending on how often each metric changes:
+
+    - HIGH   (every 30s)  : stars, issues      — fast-changing, user-facing
+    - MEDIUM (every 5min) : commits, PRs        — moderate change rate
+    - LOW    (every 15min): contributors        — rarely changes
+ 
+ * Also evaluates all active user alerts every 30s, checking whether any tracked metric has crossed its configured threshold.
+ 
+ * Uses setInterval() for all recurring tasks. All intervals are registered in the Fastify onClose hook so they're cleaned up on server shutdown.
  */
+
 export function startScheduler(
   fastify: FastifyInstance,
   queue: Queue<CollectJobData>
 ) {
-  const HIGH_INTERVAL = 30_000;     // 30s
+  const HIGH_INTERVAL = 30_000;       // 30s
   const MEDIUM_INTERVAL = 5 * 60_000; // 5 min
   const LOW_INTERVAL = 15 * 60_000;   // 15 min
 
@@ -48,9 +52,28 @@ export function startScheduler(
   }
 
   const handles = [
-    setInterval(() => enqueueAll('high').catch((err) => fastify.log.error({ err }, 'High scheduler failed')), HIGH_INTERVAL),
-    setInterval(() => enqueueAll('medium').catch((err) => fastify.log.error({ err }, 'Medium scheduler failed')), MEDIUM_INTERVAL),
-    setInterval(() => enqueueAll('low').catch((err) => fastify.log.error({ err }, 'Low scheduler failed')), LOW_INTERVAL),
+    setInterval(() => enqueueAll('high')
+                      .catch((err) => 
+                        fastify.log.error({ err }, 'High scheduler failed')), 
+                        HIGH_INTERVAL
+                ),
+    setInterval(() => enqueueAll('medium')
+                      .catch((err) => 
+                        fastify.log.error({ err }, 'Medium scheduler failed')),
+                        MEDIUM_INTERVAL
+                ),
+    setInterval(() => enqueueAll('low')
+                      .catch((err) => 
+                        fastify.log.error({ err }, 'Low scheduler failed')), 
+                        LOW_INTERVAL
+                ),
+    setInterval(() => evaluateAlerts(fastify.pg)
+                      .then(({ evaluated, triggered }) =>
+                        fastify.log.debug(`🔔 Alerts evaluated: ${evaluated}, triggered: ${triggered.length}`)
+                      )
+                      .catch((err) => fastify.log.error({ err }, 'Alert evaluation failed')),
+                      HIGH_INTERVAL // every 30s, same as high-priority jobs
+                ),
   ];
 
   fastify.log.info('📅 Scheduler started (high=30s, medium=5min, low=15min)');

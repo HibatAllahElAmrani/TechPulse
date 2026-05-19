@@ -1,15 +1,17 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
-
 import { getEnv } from './config/env.js';
 import pgPlugin from './plugins/pg.js';
 import redisPlugin from './plugins/redis.js';
 import socketioPlugin from './plugins/socketio.js';
 import healthRoutes from './routes/health.js';
 import projectsRoutes from './routes/projects.js';
+import alertsRoutes from './routes/alerts.js';
 import { createMetricsQueue, createMetricsWorker } from './workers/metricsWorker.js';
 import { startScheduler } from './workers/scheduler.js';
+
+
 
 async function buildServer() {
   const env = getEnv();
@@ -24,6 +26,7 @@ async function buildServer() {
     },
   });
 
+  
   // ---- Global plugins ----
   await app.register(cors, {
     origin: env.FRONTEND_URL,
@@ -55,9 +58,11 @@ async function buildServer() {
   await app.register(
     async (fastify) => {
       await fastify.register(projectsRoutes, { metricsQueue });
+      await fastify.register(alertsRoutes);
     },
     { prefix: '/api/v1' }
   );
+
 
   // ---- Root ----
   app.get('/', async () => ({

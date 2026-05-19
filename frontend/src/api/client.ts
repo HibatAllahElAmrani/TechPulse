@@ -44,6 +44,27 @@ export interface CommitDay {
   commit_count: number;
 }
 
+export interface Alert {
+  id: string;
+  project_id: string;
+  project_name: string;
+  metric: 'stars' | 'forks' | 'open_issues' | 'open_prs' | 'commits_30d';
+  operator: '>' | '<' | 'delta_pct';
+  threshold: number;
+  notification_channels: ('in_app'| 'slack' | 'email')[];
+  is_active: boolean;
+  last_triggered_at: string | null;
+  created_at: string;
+}
+
+export interface CreateAlertInput {
+  project_id: string;
+  metric: Alert['metric'];
+  operator: Alert['operator'];
+  threshold: number;
+  notification_channels: Alert['notification_channels'];
+}
+
 export const projectsApi = {
   list: () => api.get<{ projects: Project[] }>('/projects').then((r) => r.data.projects),
 
@@ -68,4 +89,15 @@ export const projectsApi = {
       .then((r) => r.data.days),
 
   remove: (id: string) => api.delete(`/projects/${id}`).then((r) => r.data),
+};
+
+export const alertsApi = {
+  create: (data: CreateAlertInput) =>
+    api.post<Alert>('/alerts', data).then((r) => r.data),
+
+  list: () =>
+    api.get<{ alerts: Alert[] }>('/alerts').then((r) => r.data.alerts),
+
+  delete: (id: string) =>
+    api.delete(`/alerts/${id}`).then((r) => r.data),
 };
