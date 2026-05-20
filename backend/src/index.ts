@@ -9,6 +9,7 @@ import healthRoutes from './routes/health.js';
 import projectsRoutes from './routes/projects.js';
 import alertsRoutes from './routes/alerts.js';
 import { createMetricsQueue, createMetricsWorker } from './workers/metricsWorker.js';
+import { createAlertsQueue, createAlertsWorker } from './workers/alertsWorker.js';
 import { startScheduler } from './workers/scheduler.js';
 
 
@@ -46,11 +47,15 @@ async function buildServer() {
   // ---- Workers ----
   const metricsQueue = createMetricsQueue();
   const metricsWorker = createMetricsWorker(app);
-  startScheduler(app, metricsQueue);
+  const alertsQueue = createAlertsQueue();
+  const alertsWorker = createAlertsWorker(app);
+  await startScheduler(app, metricsQueue, alertsQueue);
 
   app.addHook('onClose', async () => {
     await metricsWorker.close();
     await metricsQueue.close();
+    await alertsWorker.close(); 
+    await alertsQueue.close();
   });
 
   // ---- Routes ----

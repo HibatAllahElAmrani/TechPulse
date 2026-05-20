@@ -1,7 +1,6 @@
 import type { Queue } from 'bullmq';
 import type { FastifyInstance } from 'fastify';
 import type { CollectJobData } from './metricsWorker.js';
-import { evaluateAlerts } from '../services/alertsEvaluator.js';
 
 /** Scheduler — periodic job dispatcher
  
@@ -16,14 +15,17 @@ import { evaluateAlerts } from '../services/alertsEvaluator.js';
  * Uses setInterval() for all recurring tasks. All intervals are registered in the Fastify onClose hook so they're cleaned up on server shutdown.
  */
 
-export function startScheduler(
+export async function startScheduler(
   fastify: FastifyInstance,
-  queue: Queue<CollectJobData>
+  metricsQueue: Queue<CollectJobData>,
+  alertsQueue: Queue,
 ) {
   const HIGH_INTERVAL = 30_000;       // 30s
   const MEDIUM_INTERVAL = 5 * 60_000; // 5 min
   const LOW_INTERVAL = 15 * 60_000;   // 15 min
 
+
+  // ---- Metrics collection jobs (setInterval — enqueue only, lightweight) ----
   async function enqueueAll(priority: 'high' | 'medium' | 'low') {
     const { rows } = await fastify.pg.query<{
       id: string;
@@ -39,7 +41,7 @@ export function startScheduler(
 
     await Promise.all(
       rows.map((row) =>
-        queue.add(
+        metricsQueue.add(
           `collect:${priority}:${row.id}`,
           { projectId: row.id, owner: row.owner, repo: row.repo, priority },
           {
@@ -67,18 +69,22 @@ export function startScheduler(
                         fastify.log.error({ err }, 'Low scheduler failed')), 
                         LOW_INTERVAL
                 ),
-    setInterval(() => evaluateAlerts(fastify.pg)
-                      .then(({ evaluated, triggered }) =>
-                        fastify.log.debug(`🔔 Alerts evaluated: ${evaluated}, triggered: ${triggered.length}`)
-                      )
-                      .catch((err) => fastify.log.error({ err }, 'Alert evaluation failed')),
-                      HIGH_INTERVAL // every 30s, same as high-priority jobs
-                ),
   ];
 
-  fastify.log.info('📅 Scheduler started (high=30s, medium=5min, low=15min)');
+   // ---- Alerts evaluation job (BullMQ repeatable — survives restarts) ----
+   await alertsQueue.add(
+    'evaluate-alerts',
+    {}, // no payload needed, the worker fetches everything itself
+    {
+      jobId: 'evaluate-alerts-repeatable',
+      repeat: { every: HIGH_INTERVAL }, 
+    }
+   );
+
+  fastify.log.info('📅 Scheduler started (high=30s, medium=5min, low=15min, alerts=30s via BullM)');
 
   fastify.addHook('onClose', async () => {
     handles.forEach((h) => clearInterval(h));
+    await alertsQueue.removeRepeatable('evaluate-alerts', { every: HIGH_INTERVAL });
   });
 }
